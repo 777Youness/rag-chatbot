@@ -20,12 +20,13 @@ def setup_rag_pipeline(embedding_model, vectorstore, model_name="llama2"):
     
     # Create a retriever from the vector store
     retriever = vectorstore.as_retriever(
-        search_type="similarity_score_threshold",
-        search_kwargs={"k": 4, "score_threshold": 0.5}  # Ne récupère que si le score > 0.5
+    search_type="similarity_score_threshold",
+    search_kwargs={"k": 4, "score_threshold": 0.6}  # Augmenter le seuil
     )
     
+    
     # Define the template for the RAG prompt
-     template = """
+    template = """
     You are a specialized assistant that ONLY answers questions about LangChain documentation.
     Use ONLY the following context to answer the question. 
     If the question is not about LangChain, or if the context doesn't contain the information needed, 
@@ -57,7 +58,6 @@ def setup_rag_pipeline(embedding_model, vectorstore, model_name="llama2"):
     # Build the RAG chain
     rag_chain = (
         {"context": retriever | format_docs, "question": RunnablePassthrough()}
-        | print_debug_info  # Ajouter cette ligne pour le débogage
         | prompt
         | llm
         | StrOutputParser()
