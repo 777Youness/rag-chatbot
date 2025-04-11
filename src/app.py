@@ -1,6 +1,6 @@
 import os
+import json
 from flask import Flask, request, jsonify, render_template
-from langchain_community.document_loaders import TextLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
@@ -8,6 +8,7 @@ from langchain_community.llms import Ollama
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from langchain_core.documents import Document
 
 # Initialize Flask app
 app = Flask(__name__, 
@@ -51,145 +52,203 @@ def generate_response(rag_chain, query):
         print(f"Error generating response: {str(e)}")
         return f"An error occurred while generating a response: {str(e)}"
 
+def load_jsonl_file(file_path):
+    """
+    Charge manuellement un fichier JSONL et le convertit en documents LangChain
+    """
+    documents = []
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            for line_number, line in enumerate(file, 1):
+                try:
+                    line = line.strip()
+                    if not line:  # Ignore les lignes vides
+                        continue
+                        
+                    data = json.loads(line)
+                    
+                    # Essayer d'extraire le contenu textuel du document
+                    content = None
+                    
+                    # Chercher des clés courantes pour le contenu
+                    for key in ['text', 'content', 'page_content', 'body', 'document']:
+                        if key in data and isinstance(data[key], str):
+                            content = data[key]
+                            break
+                    
+                    # Si aucune clé standard n'est trouvée, essayer de trouver une chaîne de caractères longue
+                    if content is None:
+                        for key, value in data.items():
+                            if isinstance(value, str) and len(value) > 50:
+                                content = value
+                                break
+                    
+                    # En dernier recours, utiliser tout le JSON comme contenu
+                    if content is None:
+                        content = json.dumps(data)
+                    
+                    # Créer un Document LangChain
+                    metadata = {"source": file_path, "line": line_number}
+                    # Ajouter d'autres métadonnées si disponibles
+                    for meta_key in ['title', 'url', 'author', 'date', 'source']:
+                        if meta_key in data and isinstance(data[meta_key], (str, int, float, bool)):
+                            metadata[meta_key] = data[meta_key]
+                    
+                    doc = Document(page_content=content, metadata=metadata)
+                    documents.append(doc)
+                    
+                except json.JSONDecodeError as e:
+                    print(f"Erreur JSON à la ligne {line_number}: {e}")
+                except Exception as e:
+                    print(f"Erreur lors du traitement de la ligne {line_number}: {e}")
+    except Exception as e:
+        print(f"Erreur lors de l'ouverture du fichier {file_path}: {e}")
+    
+    return documents
+
 def initialize_rag_system():
     global vectorstore, rag_chain
     
     print("Initializing RAG system...")
     
-    # Create sample data directory and file if they don't exist
+    # Définir le chemin vers le fichier train.jsonl téléchargé
     data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
     os.makedirs(data_dir, exist_ok=True)
     
-    sample_file = os.path.join(data_dir, 'langchain_sample.txt')
+    jsonl_file = os.path.join(data_dir, 'train.jsonl')
     
-    # Create sample content if file doesn't exist
-    if not os.path.exists(sample_file):
-        with open(sample_file, 'w', encoding='utf-8') as f:
-            f.write("""
+    # Vérifier si le fichier existe
+    if not os.path.exists(jsonl_file):
+        print(f"ATTENTION: Le fichier {jsonl_file} n'existe pas.")
+        print("Veuillez télécharger ce fichier depuis Hugging Face et le placer dans le dossier 'data'.")
+        
+        # Créer un fichier d'exemple si le fichier n'existe pas
+        sample_file = os.path.join(data_dir, 'langchain_sample.txt')
+        if not os.path.exists(sample_file):
+            with open(sample_file, 'w', encoding='utf-8') as f:
+                f.write("""
 # LangChain Documentation
 
 LangChain is a framework for developing applications powered by language models. It enables applications that:
-- Are context-aware: connect a language model to sources of context (prompt instructions, few-shot examples, content to ground its response in, etc.)
-- Reason: rely on a language model to reason (about how to answer based on provided context, what actions to take, etc.)
+- Are context-aware: connect a language model to sources of context
+- Reason: rely on a language model to reason about provided context
 
-## Modules
-
-LangChain provides modules that help with:
-- Model I/O: Interface with language models
-- Retrieval: Interface with application-specific data
-- Agents: Let chains choose which tools to use given high-level directives
-
-## Key Concepts
+## Key Components
 
 ### Chains
-Chains go beyond a single LLM call and involve sequences of calls (whether to an LLM or a different utility). LangChain provides a standard interface for chains, and several implementations of chains for different use cases.
+Chains in LangChain go beyond a single LLM call and involve sequences of calls.
 
 ### Agents
-Agents involve an LLM making decisions about which actions to take, taking that action, seeing an observation, and repeating until done. LangChain provides a standard interface for agents, and several implementations of agents.
-
-### Memory
-Memory refers to persisting state between calls of a chain/agent. LangChain provides a standard interface for memory, and several implementations of memory for different use cases.
-
-### Callbacks
-Callbacks allow you to log and stream intermediate steps of any chain, making it easy to observe, debug, and evaluate the internals of an application.
-
-### Document Loaders
-Document loaders load documents from many different sources. LangChain provides a standard interface for document loaders, and several implementations.
-
-### Text Splitters
-Text splitters split documents into chunks. LangChain provides several implementations of text splitters.
+Agents involve an LLM making decisions about which actions to take.
 
 ### Retrievers
-Retrievers retrieve documents from a source. LangChain provides a standard interface for retrievers, and several implementations.
-
-### Embeddings
-Embedding models convert text into numerical representations. LangChain integrates with various embedding models.
-
-### Vector Stores
-Vector stores store embeddings and allow for searching based on similarity. LangChain provides a standard interface for vector stores, and several implementations.
-            """)
+Retrievers retrieve documents from a source. LangChain provides a standard interface for retrievers.
+                """)
+            documents = [Document(page_content=open(sample_file, 'r', encoding='utf-8').read(), metadata={"source": sample_file})]
+            print(f"Créé un fichier d'exemple à la place: {sample_file}")
+        else:
+            documents = [Document(page_content=open(sample_file, 'r', encoding='utf-8').read(), metadata={"source": sample_file})]
+            print(f"Utilisation du fichier d'exemple existant: {sample_file}")
+    else:
+        # Charger les documents depuis le fichier JSONL
+        print("Chargement des documents depuis le fichier JSONL...")
+        documents = load_jsonl_file(jsonl_file)
+        print(f"Chargés {len(documents)} documents depuis {jsonl_file}")
     
-    # Load documents
-    print("Loading documents...")
-    try:
-        loader = DirectoryLoader(data_dir, glob="**/*.txt", loader_cls=TextLoader)
-        documents = loader.load()
-        print(f"Loaded {len(documents)} documents")
-    except Exception as e:
-        print(f"Error loading documents: {str(e)}")
-        documents = []
-
-    # Process documents
-    print("Processing documents...")
+    if len(documents) == 0:
+        print("ERREUR: Aucun document n'a été chargé. Impossible de continuer.")
+        return None
+    
+    # Traiter les documents
+    print("Traitement des documents...")
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=512,
         chunk_overlap=100,
         length_function=len,
     )
     chunks = text_splitter.split_documents(documents)
-    print(f"Created {len(chunks)} document chunks")
+    print(f"Créés {len(chunks)} fragments de documents")
     
-    # Setup embeddings and vectorstore
-    print("Setting up embeddings and vector store...")
+    if len(chunks) == 0:
+        print("ERREUR: Aucun fragment de document n'a été créé. Impossible de continuer.")
+        return None
+    
+    # Configuration des embeddings et du vectorstore
+    print("Configuration des embeddings et de la base vectorielle...")
     model_name = "sentence-transformers/all-MiniLM-L6-v2"
     model_kwargs = {'device': 'cpu'}
     encode_kwargs = {'normalize_embeddings': True}
     
-    embedding_model = HuggingFaceEmbeddings(
-        model_name=model_name,
-        model_kwargs=model_kwargs,
-        encode_kwargs=encode_kwargs
-    )
+    try:
+        # Pour supprimer l'avertissement de dépréciation, utiliser la nouvelle importation si disponible
+        try:
+            from langchain_huggingface import HuggingFaceEmbeddings
+            embedding_model = HuggingFaceEmbeddings(
+                model_name=model_name,
+                model_kwargs=model_kwargs,
+                encode_kwargs=encode_kwargs
+            )
+        except ImportError:
+            embedding_model = HuggingFaceEmbeddings(
+                model_name=model_name,
+                model_kwargs=model_kwargs,
+                encode_kwargs=encode_kwargs
+            )
+        
+        persist_directory = os.path.join(data_dir, "chroma_db")
+        os.makedirs(persist_directory, exist_ok=True)
+        
+        # Créer la base vectorielle
+        vectorstore = Chroma.from_documents(
+            documents=chunks,
+            embedding=embedding_model,
+            persist_directory=persist_directory
+        )
+        
+    except Exception as e:
+        print(f"Erreur lors de la configuration des embeddings ou de la base vectorielle: {str(e)}")
+        return None
     
-    persist_directory = os.path.join(data_dir, "chroma_db")
-    os.makedirs(persist_directory, exist_ok=True)
+    # Configuration du pipeline RAG
+    print("Configuration du pipeline RAG...")
     
-    vectorstore = Chroma.from_documents(
-        documents=chunks,
-        embedding=embedding_model,
-        persist_directory=persist_directory
-    )
-    
-    # Setup RAG pipeline
-    print("Setting up RAG pipeline...")
-    
-    # Initialize the language model from Ollama
+    # Initialiser le modèle de langage depuis Ollama
     try:
         llm = Ollama(model="llama2")
     except Exception as e:
-        print(f"Error initializing Ollama: {str(e)}")
-        print("Make sure Ollama is installed and running")
+        print(f"Erreur lors de l'initialisation d'Ollama: {str(e)}")
+        print("Assurez-vous qu'Ollama est installé et en cours d'exécution")
         return None
         
-    # Create a retriever from the vector store
+    # Créer un récupérateur à partir de la base vectorielle
     retriever = vectorstore.as_retriever(
         search_type="similarity",
         search_kwargs={"k": 4}
     )
     
-    # Define the template for the RAG prompt
+    # Définir le template pour le prompt RAG
     template = """
-    You are a helpful assistant that answers questions about LangChain based on the provided context.
-    Use the following pieces of context to answer the question at the end.
-    If you don't know the answer, just say that you don't know, don't try to make up an answer.
-    Keep your answers concise and focused on the question.
+    Vous êtes un assistant utile qui répond aux questions sur LangChain en vous basant sur le contexte fourni.
+    Utilisez les extraits suivants pour répondre à la question posée à la fin.
+    Si vous ne connaissez pas la réponse, dites simplement que vous ne savez pas, n'essayez pas d'inventer une réponse.
+    Gardez vos réponses concises et concentrées sur la question.
 
-    Context:
+    Contexte:
     {context}
 
     Question: {question}
 
-    Your Answer:
+    Votre réponse:
     """
     
-    # Create the prompt from the template
+    # Créer le prompt à partir du template
     prompt = PromptTemplate.from_template(template)
     
-    # Define a function to format the documents for the context
+    # Définir une fonction pour formater les documents pour le contexte
     def format_docs(docs):
         return "\n\n".join([doc.page_content for doc in docs])
     
-    # Build the RAG chain
+    # Construire la chaîne RAG
     rag_chain = (
         {"context": retriever | format_docs, "question": RunnablePassthrough()}
         | prompt
@@ -197,18 +256,18 @@ Vector stores store embeddings and allow for searching based on similarity. Lang
         | StrOutputParser()
     )
     
-    print("RAG system initialized successfully!")
+    print("Système RAG initialisé avec succès!")
     return rag_chain
 
 def run_app():
     global rag_chain
     
-    # Initialize the RAG system
+    # Initialiser le système RAG
     rag_chain = initialize_rag_system()
     
     if rag_chain is None:
-        print("Failed to initialize RAG system")
+        print("Échec de l'initialisation du système RAG")
         return
     
-    # Run the Flask app
+    # Exécuter l'application Flask
     app.run(debug=True, host='0.0.0.0', port=5000)

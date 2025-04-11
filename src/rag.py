@@ -20,23 +20,24 @@ def setup_rag_pipeline(embedding_model, vectorstore, model_name="llama2"):
     
     # Create a retriever from the vector store
     retriever = vectorstore.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 4}  # Retrieve 4 most similar documents
+        search_type="similarity_score_threshold",
+        search_kwargs={"k": 4, "score_threshold": 0.5}  # Ne récupère que si le score > 0.5
     )
     
     # Define the template for the RAG prompt
-    template = """
-    You are a helpful assistant that answers questions about LangChain based on the provided context.
-    Use the following pieces of context to answer the question at the end.
-    If you don't know the answer, just say that you don't know, don't try to make up an answer.
-    Keep your answers concise and focused on the question.
+     template = """
+    You are a specialized assistant that ONLY answers questions about LangChain documentation.
+    Use ONLY the following context to answer the question. 
+    If the question is not about LangChain, or if the context doesn't contain the information needed, 
+    respond with: "Je ne peux répondre qu'à des questions sur LangChain basées sur la documentation fournie."
+    Do not make up information or use your general knowledge.
 
     Context:
     {context}
 
     Question: {question}
 
-    Your Answer:
+    Your Answer (ONLY about LangChain based on the context above):
     """
     
     # Create the prompt from the template
@@ -46,12 +47,22 @@ def setup_rag_pipeline(embedding_model, vectorstore, model_name="llama2"):
     def format_docs(docs):
         return "\n\n".join([doc.page_content for doc in docs])
     
+    
+    def print_debug_info(inputs):
+        print(f"QUESTION: {inputs['question']}")
+        print(f"CONTEXT CHUNKS: {len(inputs['context'].split('\\n\\n'))}")
+        print(f"CONTEXT SAMPLE: {inputs['context'][:300]}...")
+        return inputs
+    
     # Build the RAG chain
     rag_chain = (
         {"context": retriever | format_docs, "question": RunnablePassthrough()}
+        | print_debug_info  # Ajouter cette ligne pour le débogage
         | prompt
         | llm
         | StrOutputParser()
     )
     
     return rag_chain
+
+
