@@ -52,7 +52,7 @@ This project implements a RAG (Retrieval Augmented Generation) system with the f
 
 1. Start the application:
    ```
-   python src/main.py
+   python run.py
    ```
 
 2. Open your web browser and navigate to:
