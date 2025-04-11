@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LangChain RAG Chatbot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>LangChain RAG Chatbot</h1>
+            <p>Ask questions about LangChain documentation</p>
+        </header>
+        
+        <div class="chat-container">
+            <div id="chat-messages" class="chat-messages">
+                <div class="message bot">
+                    <div class="message-content">
+                        <p>Hello! I'm your LangChain documentation assistant. Ask me anything about LangChain.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-input">
+                <input type="text" id="user-input" placeholder="Ask a question about LangChain...">
+                <button id="send-btn">Send</button>
+            </div>
+        </div>
+        
+        <div class="status-container">
+            <p id="status-message">System ready</p>
+        </div>
+        
+        <footer>
+            <p>RAG Chatbot using LangChain, Ollama, and ChromaDB</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
